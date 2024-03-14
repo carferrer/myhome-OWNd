@@ -201,6 +201,11 @@ class OWNMessage:
     def where(self) -> str:
         """The 'where' ID of the subject of this message"""
         return self._where  # [1:] if self._where.startswith('#') else self._where
+        
+    @property
+    def queversion(self) -> str:
+        """Add como pruerba"""
+        return "0.7.50"
 
     @property
     def interface(self) -> str:
