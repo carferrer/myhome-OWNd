@@ -7,7 +7,7 @@ with open("README.md", encoding="utf-8", mode="r") as fh:
 
 setuptools.setup(
     name="OWNd",
-    version="2026.09.05",
+    version="2026.09.06",
     author="carferrer",
     url="https://github.com/carferrer/myhome-OWNd",
     author_email="carferrermar@gmail.com",
