@@ -7,10 +7,10 @@ with open("README.md", encoding="utf-8", mode="r") as fh:
 
 setuptools.setup(
     name="OWNd",
-    version="0.7.48",
-    author="anotherjulien",
-    url="https://github.com/anotherjulien/OWNd",
-    author_email="yetanotherjulien@gmail.com",
+    version="2026.09.01",
+    author="carferrer",
+    url="https://github.com/carferrer/myhome-OWNd",
+    author_email="carferrermar@gmail.com",
     description="Python interface for the OpenWebNet protocol",
     long_description=long_description,
     long_description_content_type="text/markdown",
