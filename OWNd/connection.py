@@ -6,7 +6,6 @@ import hashlib
 import string
 import random
 import logging
-from typing import Union
 from urllib.parse import urlparse
 
 from .discovery import find_gateways, get_gateway, get_port
@@ -173,21 +172,18 @@ class OWNSession:
     ):
         """Initialize the class
         Arguments:
-        gateway: OpenWebNet gateway instance
-        connection_type: used when logging to identify this session
         logger: instance of logging
+        address: IP address of the OpenWebNet gateway
+        port: TCP port for the connection
+        password: OpenWebNet password
         """
 
         self._gateway = gateway
         self._type = connection_type.lower()
         self._logger = logger
 
-        # annotations for stream reader/writer:
         self._stream_reader: asyncio.StreamReader
         self._stream_writer: asyncio.StreamWriter
-        # init them to None:
-        self._stream_reader = None
-        self._stream_writer = None
 
     @property
     def gateway(self) -> OWNGateway:
@@ -197,13 +193,13 @@ class OWNSession:
     def gateway(self, gateway: OWNGateway) -> None:
         self._gateway = gateway
 
-    # password is a property inside OWNGateway... right?
-    #@property
-    #def password(self) -> str:
-    #    return str(self._password)
-    #@password.setter
-    #def password(self, password: str) -> None:
-    #    self._password = password
+    @property
+    def password(self) -> str:
+        return str(self._password)
+
+    @password.setter
+    def password(self, password: str) -> None:
+        self._password = password
 
     @property
     def logger(self) -> logging.Logger:
@@ -314,15 +310,11 @@ class OWNSession:
 
     async def close(self) -> None:
         """Closes the connection to the OpenWebNet gateway"""
-
-        # this method may be invoked on an empty instance of OWNSession, so be robust against Nones:
-        if self._stream_writer is not None:
-            self._stream_writer.close()
-            await self._stream_writer.wait_closed()
-        if self._gateway is not None:
-            self._logger.debug(
-                "%s %s session closed.", self._gateway.log_id, self._type.capitalize()
-            )
+        self._stream_writer.close()
+        await self._stream_writer.wait_closed()
+        self._logger.debug(
+            "%s %s session closed.", self._gateway.log_id, self._type.capitalize()
+        )
 
     async def _negotiate(self) -> dict:
         type_id = 0 if self._type == "command" else 1
@@ -374,7 +366,6 @@ class OWNSession:
                 self._stream_writer.write("*#*0##".encode())
                 await self._stream_writer.drain()
             else:
-                method = "sha"
                 if resulting_message.is_sha_1():
                     # self._logger.debug("%s Detected SHA-1 method.", self._gateway.log_id)
                     method = "sha1"
@@ -436,9 +427,6 @@ class OWNSession:
                                 # )
                                 self._stream_writer.write("*#*1##".encode())
                                 await self._stream_writer.drain()
-                                self._logger.debug(
-                                    "%s Session established successfully.", self._gateway.log_id
-                                )
                             else:
                                 self._logger.error(
                                     "%s Server identity could not be confirmed.",
@@ -493,7 +481,7 @@ class OWNSession:
                     )
                 elif resulting_message.is_ack():
                     self._logger.debug(
-                        "%s %s session established successfully.",
+                        "%s %s session established.",
                         self._gateway.log_id,
                         self._type.capitalize(),
                     )
@@ -508,7 +496,7 @@ class OWNSession:
         elif resulting_message.is_ack():
             # self._logger.debug("%s Reply: `%s`", self._gateway.log_id, resulting_message)
             self._logger.debug(
-                "%s %s session established successfully.",
+                "%s %s session established.",
                 self._gateway.log_id,
                 self._type.capitalize(),
             )
@@ -653,7 +641,7 @@ class OWNEventSession(OWNSession):
         connection = cls(gateway)
         await connection.connect()
 
-    async def get_next(self) -> Union[OWNMessage, str, None]:
+    async def get_next(self):
         """Acts as an entry point to read messages on the event bus.
         It will read one frame and return it as an OWNMessage object"""
         try:
@@ -696,18 +684,57 @@ class OWNCommandSession(OWNSession):
         connection = cls(gateway)
         await connection.connect()
 
-    async def send(self, message, is_status_request: bool = False, attempt: int = 1):
+    async def send(self, message: str, is_status_request: bool = False):
         """Send the attached message on an existing 'command' connection,
         actively reconnecting it if it had been reset."""
 
         try:
-
             self._stream_writer.write(str(message).encode())
             await self._stream_writer.drain()
             raw_response = await self._stream_reader.readuntil(OWNSession.SEPARATOR)
             resulting_message = OWNMessage.parse(raw_response.decode())
-
-            while not isinstance(resulting_message, OWNSignaling):
+            if (
+                isinstance(resulting_message, OWNSignaling)
+                and resulting_message.is_nack()
+            ):
+                self._stream_writer.write(str(message).encode())
+                await self._stream_writer.drain()
+                raw_response = await self._stream_reader.readuntil(OWNSession.SEPARATOR)
+                resulting_message = OWNSignaling(raw_response.decode())
+                if resulting_message.is_nack():
+                    self._logger.error(
+                        "%s Could not send message `%s`.", self._gateway.log_id, message
+                    )
+                elif resulting_message.is_ack():
+                    if not is_status_request:
+                        self._logger.info(
+                            "%s Message `%s` was successfully sent.",
+                            self._gateway.log_id,
+                            message,
+                        )
+                    else:
+                        self._logger.debug(
+                            "%s Message `%s` was successfully sent.",
+                            self._gateway.log_id,
+                            message,
+                        )
+            elif (
+                isinstance(resulting_message, OWNSignaling)
+                and resulting_message.is_ack()
+            ):
+                if not is_status_request:
+                    self._logger.info(
+                        "%s Message `%s` was successfully sent.",
+                        self._gateway.log_id,
+                        message,
+                    )
+                else:
+                    self._logger.debug(
+                        "%s Message `%s` was successfully sent.",
+                        self._gateway.log_id,
+                        message,
+                    )
+            else:
                 self._logger.debug(
                     "%s Message `%s` received response `%s`.",
                     self._gateway.log_id,
@@ -715,26 +742,25 @@ class OWNCommandSession(OWNSession):
                     resulting_message,
                 )
                 raw_response = await self._stream_reader.readuntil(OWNSession.SEPARATOR)
-                resulting_message = OWNMessage.parse(raw_response.decode())
+                resulting_message = OWNSignaling(raw_response.decode())
+                if resulting_message.is_nack():
+                    self._logger.error(
+                        "%s Could not send message `%s`.", self._gateway.log_id, message
+                    )
+                elif resulting_message.is_ack():
+                    if not is_status_request:
+                        self._logger.info(
+                            "%s Message `%s` was successfully sent.",
+                            self._gateway.log_id,
+                            message,
+                        )
+                    else:
+                        self._logger.debug(
+                            "%s Message `%s` was successfully sent.",
+                            self._gateway.log_id,
+                            message,
+                        )
 
-            if resulting_message.is_nack():
-                if attempt <= 2:
-                    self._logger.error(
-                        "%s Could not send message `%s`. Retrying (%d)...", self._gateway.log_id, message,
-                        attempt
-                    )
-                    return await self.send(message, is_status_request, attempt + 1)
-                else:
-                    self._logger.error(
-                        "%s Could not send message `%s`. No more retries.", self._gateway.log_id, message
-                    )
-            elif resulting_message.is_ack():
-                log_message = "%s Message `%s` was successfully sent."
-                if not is_status_request:
-                    self._logger.info(log_message, self._gateway.log_id, message)
-                else:
-                    self._logger.debug(log_message, self._gateway.log_id, message)
-                    
         except (ConnectionResetError, asyncio.IncompleteReadError):
             self._logger.debug(
                 "%s Command session connection reset, retrying...", self._gateway.log_id
