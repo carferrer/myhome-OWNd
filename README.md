@@ -1,5 +1,9 @@
 #OWNd
 
+MyHOME-bticino integration for Home-Assistant modificado por @carferrer
+
+Original proyect https://github.com/anotherjulien/OWNd from https://github.com/anotherjulien
+
 This package is an event listener and command forwarder for the OpenWebNet protocol.
 
 It is mainly intended to be used in an Home-Assistant integration.
